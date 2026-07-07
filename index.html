@@ -414,6 +414,7 @@
               <span id="rp-addr2">Sonfonia, Conakry</span>
               <span id="rp-phone"></span>
               <span id="rp-email">africavisionvoyage@gmail.com</span>
+              <span id="rp-website"></span>
             </div>
             <div class="rp-body">
               <p class="rp-title">Reçu de paiement</p>
@@ -527,6 +528,10 @@
             <input type="text" id="s-email">
           </div>
         </div>
+        <div class="field">
+          <label for="s-website">Site web</label>
+          <input type="text" id="s-website" placeholder="africavisioncargo.com">
+        </div>
 
         <h2>Numérotation des reçus</h2>
         <p class="hint">Le prochain reçu utilisera automatiquement ce préfixe, cette année et ce numéro (modifiable à tout moment).</p>
@@ -559,7 +564,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getFirestore, collection, doc, setDoc, deleteDoc, getDocs
+  getFirestore, collection, doc, setDoc, deleteDoc, getDocs, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   getAuth, signInAnonymously
@@ -601,8 +606,9 @@ import {
     tagline:"Cargo International • Billetterie • Visa",
     addr1:"Madina, Conakry, Guinée",
     addr2:"Sonfonia, Conakry, Guinée",
-    phone:"",
+    phone:"625 81 36 46 / 612 39 83 18",
     email:"africavisionvoyage@gmail.com",
+    website:"africavisioncargo.com",
     prefix:"REC",
     year:String(new Date().getFullYear()),
     next:1,
@@ -949,6 +955,7 @@ import {
     addr2: document.getElementById('rp-addr2'),
     phone: document.getElementById('rp-phone'),
     email: document.getElementById('rp-email'),
+    website: document.getElementById('rp-website'),
     number: document.getElementById('rp-number'),
     client: document.getElementById('rp-client'),
     date: document.getElementById('rp-date'),
@@ -977,6 +984,7 @@ import {
     rp.addr2.textContent = s.addr2;
     rp.phone.textContent = s.phone ? ('Tél : '+s.phone) : '';
     rp.email.textContent = s.email;
+    rp.website.textContent = s.website || '';
 
     rp.number.textContent = f.number.value || '—';
     rp.client.textContent = f.client.value || '—';
@@ -1033,6 +1041,30 @@ import {
     var s = loadSettings();
     var padded = String(s.next).padStart(3,'0');
     return s.prefix + '-' + s.year + '-' + padded;
+  }
+
+  // Réservation atomique du numéro via Firestore : empêche deux employés
+  // connectés en même temps d'obtenir le même numéro de reçu.
+  async function reserveNextNumber(prefix, year){
+    var counterRef = doc(db, 'recus_meta', 'counter');
+    try{
+      var reserved = await runTransaction(db, async function(transaction){
+        var counterDoc = await transaction.get(counterRef);
+        var next;
+        if(!counterDoc.exists()){
+          next = 1;
+        } else {
+          var data = counterDoc.data();
+          next = (data.year === year && data.prefix === prefix) ? (data.next || 1) : 1;
+        }
+        transaction.set(counterRef, { prefix: prefix, year: year, next: next + 1 });
+        return next;
+      });
+      return reserved;
+    }catch(e){
+      console.error('Réservation du numéro de reçu échouée', e);
+      return null;
+    }
   }
 
   function resetForm(keepAgent){
@@ -1094,8 +1126,30 @@ import {
     };
   }
 
-  document.getElementById('btnSave').addEventListener('click', function(){
+  document.getElementById('btnSave').addEventListener('click', async function(){
     if(!validate()) return;
+    var btn = this;
+    var isNew = !currentRecordId;
+    var s = loadSettings();
+
+    if(isNew){
+      btn.disabled = true;
+      var originalLabel = btn.textContent;
+      btn.textContent = 'Attribution du numéro…';
+      var authed = await ensureAuth();
+      if(authed){
+        var reserved = await reserveNextNumber(s.prefix, s.year);
+        if(reserved !== null){
+          f.number.value = s.prefix + '-' + s.year + '-' + String(reserved).padStart(3,'0');
+          updatePreview();
+        }
+        // Si la réservation échoue malgré la connexion, on garde le numéro local déjà affiché.
+      }
+      // Hors ligne : on garde le numéro local déjà affiché (petit risque de doublon, corrigé à la prochaine synchro).
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+
     var record = buildRecord();
     var list = loadReceipts();
 
@@ -1110,7 +1164,6 @@ import {
       toast('Reçu ' + record.number + ' mis à jour.');
     } else {
       list.push(record);
-      var s = loadSettings();
       s.next = s.next + 1;
       s.lastAgent = record.agent;
       saveSettings(s);
@@ -1384,6 +1437,7 @@ import {
     addr2: document.getElementById('s-addr2'),
     phone: document.getElementById('s-phone'),
     email: document.getElementById('s-email'),
+    website: document.getElementById('s-website'),
     prefix: document.getElementById('s-prefix'),
     year: document.getElementById('s-year'),
     next: document.getElementById('s-next')
@@ -1397,6 +1451,7 @@ import {
     sEl.addr2.value = s.addr2;
     sEl.phone.value = s.phone;
     sEl.email.value = s.email;
+    sEl.website.value = s.website || '';
     sEl.prefix.value = s.prefix;
     sEl.year.value = s.year;
     sEl.next.value = s.next;
@@ -1410,6 +1465,7 @@ import {
     s.addr2 = sEl.addr2.value.trim();
     s.phone = sEl.phone.value.trim();
     s.email = sEl.email.value.trim();
+    s.website = sEl.website.value.trim();
     s.prefix = sEl.prefix.value.trim() || 'REC';
     s.year = sEl.year.value.trim() || String(new Date().getFullYear());
     s.next = parseInt(sEl.next.value,10) || 1;
