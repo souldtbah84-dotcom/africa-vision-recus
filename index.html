@@ -550,6 +550,13 @@
           <input type="number" id="s-next" min="1" step="1">
         </div>
 
+        <h2>Sécurité</h2>
+        <p class="hint">Si un code est défini, il sera demandé avant de supprimer un reçu ou de vider l'historique — sur tous les appareils connectés à Firebase.</p>
+        <div class="field">
+          <label for="s-deletepin">Code de suppression (PIN)</label>
+          <input type="password" id="s-deletepin" placeholder="Laisser vide = suppression libre pour tous" autocomplete="new-password">
+        </div>
+
         <div class="btn-row">
           <button class="btn btn-primary" id="btnSaveSettings">Enregistrer les paramètres</button>
         </div>
@@ -564,7 +571,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getFirestore, collection, doc, setDoc, deleteDoc, getDocs, runTransaction
+  getFirestore, collection, doc, setDoc, deleteDoc, getDocs, getDoc, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   getAuth, signInAnonymously
@@ -612,7 +619,8 @@ import {
     prefix:"REC",
     year:String(new Date().getFullYear()),
     next:1,
-    lastAgent:""
+    lastAgent:"",
+    deletePin:""
   };
 
   var currentRecordId = null; // null = nouveau reçu, sinon = mise à jour d'un reçu existant
@@ -1036,7 +1044,49 @@ import {
     }
   }
 
-  // ---------- generate next receipt number ----------
+  // ---------- code de suppression (protection partagée via Firestore) ----------
+  async function pullDeletePin(){
+    var secRef = doc(db, 'recus_meta', 'security');
+    try{
+      var authed = await ensureAuth();
+      if(!authed) return null;
+      var snap = await getDoc(secRef);
+      return snap.exists() ? (snap.data().deletePin || '') : '';
+    }catch(e){
+      console.error('Lecture du code de suppression échouée', e);
+      return null;
+    }
+  }
+  async function pushDeletePin(pin){
+    var secRef = doc(db, 'recus_meta', 'security');
+    try{
+      var authed = await ensureAuth();
+      if(!authed) return false;
+      await setDoc(secRef, { deletePin: pin }, { merge:true });
+      return true;
+    }catch(e){
+      console.error('Écriture du code de suppression échouée', e);
+      return false;
+    }
+  }
+  // Vérifie le code avant une suppression. Retourne true si l'action est autorisée.
+  async function requestDeleteAuthorization(){
+    var remote = await pullDeletePin();
+    var s = loadSettings();
+    var pin = (remote !== null) ? remote : (s.deletePin || '');
+    if(remote !== null && remote !== s.deletePin){
+      s.deletePin = remote;
+      saveSettings(s);
+    }
+    if(!pin) return true; // aucun code défini : suppression libre
+    var entered = prompt('Code de suppression requis :');
+    if(entered === null) return false;
+    if(entered !== pin){
+      toast('Code incorrect — suppression annulée.');
+      return false;
+    }
+    return true;
+  }
   function suggestNumber(){
     var s = loadSettings();
     var padded = String(s.next).padStart(3,'0');
@@ -1303,7 +1353,9 @@ import {
       var btnDel = document.createElement('button');
       btnDel.textContent = 'Supprimer';
       btnDel.className = 'danger';
-      btnDel.addEventListener('click', function(){
+      btnDel.addEventListener('click', async function(){
+        var authorized = await requestDeleteAuthorization();
+        if(!authorized) return;
         if(confirm('Supprimer le reçu ' + rec.number + ' ? Cette action est définitive.')){
           var all = loadReceipts().filter(function(r){ return r.id !== rec.id; });
           saveReceipts(all);
@@ -1375,7 +1427,9 @@ import {
     syncNow(true);
   });
 
-  document.getElementById('btnClearAll').addEventListener('click', function(){
+  document.getElementById('btnClearAll').addEventListener('click', async function(){
+    var authorized = await requestDeleteAuthorization();
+    if(!authorized) return;
     if(confirm('Vider tout l\'historique des reçus ? Cette action est définitive et ne peut pas être annulée.')){
       saveReceipts([]);
       renderHistory();
@@ -1440,7 +1494,8 @@ import {
     website: document.getElementById('s-website'),
     prefix: document.getElementById('s-prefix'),
     year: document.getElementById('s-year'),
-    next: document.getElementById('s-next')
+    next: document.getElementById('s-next'),
+    deletepin: document.getElementById('s-deletepin')
   };
 
   function fillSettingsForm(){
@@ -1455,9 +1510,10 @@ import {
     sEl.prefix.value = s.prefix;
     sEl.year.value = s.year;
     sEl.next.value = s.next;
+    sEl.deletepin.value = s.deletePin || '';
   }
 
-  document.getElementById('btnSaveSettings').addEventListener('click', function(){
+  document.getElementById('btnSaveSettings').addEventListener('click', async function(){
     var s = loadSettings();
     s.company = sEl.company.value.trim() || defaultSettings.company;
     s.tagline = sEl.tagline.value.trim();
@@ -1469,8 +1525,11 @@ import {
     s.prefix = sEl.prefix.value.trim() || 'REC';
     s.year = sEl.year.value.trim() || String(new Date().getFullYear());
     s.next = parseInt(sEl.next.value,10) || 1;
+    s.deletePin = sEl.deletepin.value;
     saveSettings(s);
     toast('Paramètres enregistrés.');
+    var pushed = await pushDeletePin(s.deletePin);
+    if(!pushed) toast('Code de suppression sauvegardé en local — synchronisation en attente de connexion.');
     if(!currentRecordId){
       f.number.value = suggestNumber();
       updatePreview();
