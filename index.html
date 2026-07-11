@@ -240,6 +240,30 @@
   }
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
+  /* ---- receipt detail modal ---- */
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(11,31,58,.55);
+    display:none;align-items:center;justify-content:center;
+    padding:20px;z-index:1000;
+  }
+  .modal-overlay.show{display:flex;}
+  .modal-card{
+    background:#fff;border-radius:12px;max-width:480px;width:100%;
+    max-height:85vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.25);
+  }
+  .modal-head{
+    background:linear-gradient(135deg,var(--navy-deep),var(--navy));
+    color:#fff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;
+    border-bottom:3px solid var(--gold);position:sticky;top:0;gap:10px;
+  }
+  .modal-head h3{margin:0;font-family:var(--font-display);font-size:17px;}
+  .modal-close{background:none;border:none;color:#fff;font-size:24px;cursor:pointer;line-height:1;padding:0 4px;flex-shrink:0;}
+  .modal-body{padding:6px 20px 4px;}
+  .modal-row{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #F1EDE2;font-size:13.5px;}
+  .modal-row .k{color:var(--muted);font-weight:600;flex-shrink:0;}
+  .modal-row .v{color:var(--ink);text-align:right;font-weight:600;}
+  .modal-actions{display:flex;gap:10px;flex-wrap:wrap;padding:16px 20px;border-top:1px solid #EEE9DA;}
+
   /* ---- print ---- */
   @media print{
     body *{visibility:hidden;}
@@ -576,6 +600,20 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="modal-overlay" id="receiptModalOverlay">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="modalReceiptTitle">Reçu</h3>
+      <button type="button" class="modal-close" id="modalCloseBtn" aria-label="Fermer">&times;</button>
+    </div>
+    <div class="modal-body" id="modalReceiptBody"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-primary" id="modalBtnOpen">Ouvrir le reçu</button>
+      <button type="button" class="btn btn-ghost" id="modalBtnClose2">Fermer</button>
+    </div>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script type="module">
@@ -1322,6 +1360,84 @@ import {
     return (rec.amount||0).toLocaleString('fr-FR') + ' ' + CURRENCY_SYMBOL[rec.currency||'GNF'];
   }
 
+  // ---------- receipt detail modal ----------
+  var modalOverlay = document.getElementById('receiptModalOverlay');
+  var modalTitle = document.getElementById('modalReceiptTitle');
+  var modalBody = document.getElementById('modalReceiptBody');
+  var modalRecord = null;
+
+  function addModalRow(label, value){
+    var row = document.createElement('div');
+    row.className = 'modal-row';
+    var k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = label;
+    var v = document.createElement('span');
+    v.className = 'v';
+    v.textContent = value || '—';
+    row.appendChild(k);
+    row.appendChild(v);
+    modalBody.appendChild(row);
+  }
+
+  function openReceiptModal(rec){
+    modalRecord = rec;
+    modalTitle.textContent = 'Reçu ' + (rec.number || '');
+    modalBody.innerHTML = '';
+    addModalRow('Lieu d\'émission', rec.lieu || 'Sonfonia');
+    addModalRow('Date', formatDateFr(rec.date));
+    addModalRow('Client', rec.client);
+    addModalRow('Téléphone', rec.phone);
+    addModalRow('Service', rec.service);
+    if(isCargoService(rec.service) && rec.poids){
+      var poidsTxt = (rec.poids||0).toLocaleString('fr-FR') + ' kg';
+      if(rec.prixkg) poidsTxt += ' (à ' + rec.prixkg.toLocaleString('fr-FR') + ' ' + CURRENCY_SYMBOL[rec.currency||'GNF'] + ' / kg)';
+      addModalRow('Poids', poidsTxt);
+    }
+    addModalRow('Description', rec.description);
+    addModalRow('Montant payé', fmtMoney(rec));
+    var resteRec = (rec.total||0) > (rec.amount||0) ? (rec.total - rec.amount) : 0;
+    if(resteRec > 0){
+      addModalRow('Montant total', (rec.total||0).toLocaleString('fr-FR') + ' ' + CURRENCY_SYMBOL[rec.currency||'GNF']);
+      addModalRow('Reste à payer', resteRec.toLocaleString('fr-FR') + ' ' + CURRENCY_SYMBOL[rec.currency||'GNF']);
+    }
+    addModalRow('Mode de paiement', rec.payment);
+    addModalRow('Reçu par', rec.agent);
+    if(rec.signature){
+      var sigWrap = document.createElement('div');
+      sigWrap.style.textAlign = 'center';
+      sigWrap.style.marginTop = '14px';
+      var lbl = document.createElement('p');
+      lbl.className = 'hint';
+      lbl.style.margin = '0 0 6px';
+      lbl.textContent = 'Signature de l\'agent';
+      var img = document.createElement('img');
+      img.src = rec.signature;
+      img.style.maxHeight = '60px';
+      img.style.maxWidth = '100%';
+      sigWrap.appendChild(lbl);
+      sigWrap.appendChild(img);
+      modalBody.appendChild(sigWrap);
+    }
+    modalOverlay.classList.add('show');
+  }
+  function closeReceiptModal(){
+    modalOverlay.classList.remove('show');
+    modalRecord = null;
+  }
+  document.getElementById('modalCloseBtn').addEventListener('click', closeReceiptModal);
+  document.getElementById('modalBtnClose2').addEventListener('click', closeReceiptModal);
+  modalOverlay.addEventListener('click', function(e){
+    if(e.target === modalOverlay) closeReceiptModal();
+  });
+  document.getElementById('modalBtnOpen').addEventListener('click', function(){
+    if(modalRecord) loadRecordIntoForm(modalRecord);
+    closeReceiptModal();
+  });
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape' && modalOverlay.classList.contains('show')) closeReceiptModal();
+  });
+
   function renderHistory(){
     var list = loadReceipts().slice().sort(function(a,b){ return (b.createdAt||0)-(a.createdAt||0); });
     var q = (searchInput.value||'').trim().toLowerCase();
@@ -1341,6 +1457,11 @@ import {
 
     list.forEach(function(rec){
       var tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.addEventListener('click', function(e){
+        if(e.target.closest('.row-actions')) return;
+        openReceiptModal(rec);
+      });
 
       var resteRec = (rec.total||0) > (rec.amount||0) ? (rec.total - rec.amount) : 0;
       var resteTxt = resteRec > 0 ? resteRec.toLocaleString('fr-FR') + ' ' + CURRENCY_SYMBOL[rec.currency||'GNF'] : '—';
