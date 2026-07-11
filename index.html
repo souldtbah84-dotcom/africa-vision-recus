@@ -276,6 +276,15 @@
         <form class="panel form-panel" id="receiptForm" autocomplete="off">
           <h2>Informations du reçu</h2>
 
+          <div class="field">
+            <label for="f-lieu">Lieu d'émission</label>
+            <select id="f-lieu">
+              <option value="Sonfonia">Sonfonia</option>
+              <option value="Madina" selected>Madina</option>
+              <option value="Égypte">Égypte</option>
+            </select>
+          </div>
+
           <div class="row3">
             <div class="field">
               <label for="f-number">Numéro de reçu</label>
@@ -407,6 +416,7 @@
               <div class="rp-num">
                 Reçu N°
                 <strong id="rp-number">REC-2026-001</strong>
+                <div style="margin-top:4px;font-size:11px;color:var(--gold-light);">Émis à : <span id="rp-lieu">—</span></div>
               </div>
             </div>
             <div class="rp-contact" id="rp-contact">
@@ -486,7 +496,7 @@
           <table>
             <thead>
               <tr>
-                <th>N° Reçu</th><th>Date</th><th>Client</th><th>Service</th><th>Montant</th><th>Reste</th><th>Paiement</th><th>Actions</th>
+                <th>N° Reçu</th><th>Date</th><th>Client</th><th>Lieu</th><th>Service</th><th>Montant</th><th>Reste</th><th>Paiement</th><th>Actions</th>
               </tr>
             </thead>
             <tbody id="historyBody"></tbody>
@@ -620,6 +630,7 @@ import {
     year:String(new Date().getFullYear()),
     next:1,
     lastAgent:"",
+    lastLieu:"Madina",
     deletePin:""
   };
 
@@ -845,6 +856,7 @@ import {
   var f = {
     number: document.getElementById('f-number'),
     date: document.getElementById('f-date'),
+    lieu: document.getElementById('f-lieu'),
     client: document.getElementById('f-client'),
     phone: document.getElementById('f-phone'),
     service: document.getElementById('f-service'),
@@ -875,7 +887,7 @@ import {
     updatePreview();
   });
   ['input','change'].forEach(function(evt){
-    [f.number,f.date,f.client,f.phone,f.serviceOther,f.desc,f.total,f.amount,f.currency,f.payment,f.agent,fPoids,fPrixkg].forEach(function(el){
+    [f.number,f.date,f.lieu,f.client,f.phone,f.serviceOther,f.desc,f.total,f.amount,f.currency,f.payment,f.agent,fPoids,fPrixkg].forEach(function(el){
       el.addEventListener(evt, updatePreview);
     });
   });
@@ -965,6 +977,7 @@ import {
     email: document.getElementById('rp-email'),
     website: document.getElementById('rp-website'),
     number: document.getElementById('rp-number'),
+    lieu: document.getElementById('rp-lieu'),
     client: document.getElementById('rp-client'),
     date: document.getElementById('rp-date'),
     phone2: document.getElementById('rp-phone2'),
@@ -995,6 +1008,7 @@ import {
     rp.website.textContent = s.website || '';
 
     rp.number.textContent = f.number.value || '—';
+    rp.lieu.textContent = f.lieu.value || '—';
     rp.client.textContent = f.client.value || '—';
     rp.date.textContent = formatDateFr(f.date.value);
     rp.phone2.textContent = f.phone.value || '—';
@@ -1121,6 +1135,8 @@ import {
     currentRecordId = null;
     f.number.value = suggestNumber();
     f.date.value = new Date().toISOString().slice(0,10);
+    var sReset = loadSettings();
+    f.lieu.value = sReset.lastLieu || 'Madina';
     f.client.value = '';
     f.phone.value = '';
     f.service.value = 'Cargo Envoi';
@@ -1158,6 +1174,7 @@ import {
       id: currentRecordId || uid(),
       number: f.number.value.trim(),
       date: f.date.value,
+      lieu: f.lieu.value,
       client: f.client.value.trim(),
       phone: f.phone.value.trim(),
       service: f.service.value === 'Autre' ? (f.serviceOther.value.trim() || 'Autre') : f.service.value,
@@ -1216,6 +1233,7 @@ import {
       list.push(record);
       s.next = s.next + 1;
       s.lastAgent = record.agent;
+      s.lastLieu = record.lieu;
       saveSettings(s);
       currentRecordId = record.id;
       toast('Reçu ' + record.number + ' enregistré.');
@@ -1258,6 +1276,7 @@ import {
     var lines = [];
     lines.push('*' + s.company + '*');
     lines.push('Reçu N° : ' + f.number.value);
+    lines.push('Lieu d\'émission : ' + f.lieu.value);
     lines.push('Date : ' + formatDateFr(f.date.value));
     lines.push('Client : ' + f.client.value);
     var serviceVal = f.service.value === 'Autre' ? (f.serviceOther.value || 'Autre') : f.service.value;
@@ -1309,7 +1328,8 @@ import {
     if(q){
       list = list.filter(function(r){
         return (r.client||'').toLowerCase().indexOf(q) > -1 ||
-               (r.number||'').toLowerCase().indexOf(q) > -1;
+               (r.number||'').toLowerCase().indexOf(q) > -1 ||
+               (r.lieu||'').toLowerCase().indexOf(q) > -1;
       });
     }
     historyBody.innerHTML = '';
@@ -1325,7 +1345,7 @@ import {
       var resteRec = (rec.total||0) > (rec.amount||0) ? (rec.total - rec.amount) : 0;
       var resteTxt = resteRec > 0 ? resteRec.toLocaleString('fr-FR') + ' ' + CURRENCY_SYMBOL[rec.currency||'GNF'] : '—';
 
-      var tds = [rec.number, formatDateFr(rec.date), rec.client, rec.service, fmtMoney(rec)];
+      var tds = [rec.number, formatDateFr(rec.date), rec.client, rec.lieu, rec.service, fmtMoney(rec)];
       tds.forEach(function(val){
         var td = document.createElement('td');
         td.textContent = val || '—';
@@ -1383,6 +1403,7 @@ import {
     currentRecordId = rec.id;
     f.number.value = rec.number || '';
     f.date.value = rec.date || '';
+    f.lieu.value = rec.lieu || 'Madina';
     f.client.value = rec.client || '';
     f.phone.value = rec.phone || '';
     var knownServices = ['Cargo Envoi','Cargo Réception','Billetterie','Visa'];
