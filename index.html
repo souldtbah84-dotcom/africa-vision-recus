@@ -267,8 +267,14 @@
 
   /* ---- print ---- */
   @media print{
+    html, body{-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact;}
     body *{visibility:hidden;}
-    #printArea, #printArea *{visibility:visible;}
+    #printArea, #printArea *{
+      visibility:visible;
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+      color-adjust:exact;
+    }
     #printArea{position:absolute;top:0;left:0;width:100%;box-shadow:none;border:none;}
     @page{margin:12mm;}
   }
